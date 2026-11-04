@@ -280,6 +280,7 @@
       const status = document.querySelector("#status");
       const exerciseById = new Map(exercises.map((exercise) => [exercise.id, exercise]));
       const undoHistory = [];
+      const activeAnimations = new WeakMap();
 
       function readOrder() {
         let savedOrder;
@@ -313,11 +314,26 @@
         }
       }
 
-      function render() {
-        list.replaceChildren(
-          ...order.map((id, index) => {
-            const exercise = exerciseById.get(id);
-            const item = document.createElement("li");
+      function capturePositions() {
+        const positions = new Map();
+        for (const item of list.children) {
+          positions.set(item.dataset.exerciseId, item.getBoundingClientRect());
+          activeAnimations.get(item)?.cancel();
+        }
+        return positions;
+      }
+
+      function render(previousPositions = null) {
+        const existingItems = new Map(
+          [...list.children].map((item) => [item.dataset.exerciseId, item]),
+        );
+
+        order.forEach((id, index) => {
+          const exercise = exerciseById.get(id);
+          let item = existingItems.get(id);
+
+          if (!item) {
+            item = document.createElement("li");
             const button = document.createElement("button");
             const number = document.createElement("span");
             const details = document.createElement("span");
@@ -343,10 +359,36 @@
             button.append(number, details, moveIcon);
             button.addEventListener("click", () => moveToEnd(id));
             item.append(button);
-            return item;
-          }),
-        );
+            item.dataset.exerciseId = id;
+          } else {
+            const button = item.firstElementChild;
+            button.setAttribute("aria-label", `Move ${exercise.name} to the end of the list`);
+            button.querySelector(".number").textContent = String(index + 1).padStart(2, "0");
+          }
+
+          list.append(item);
+        });
+
         undoButton.disabled = undoHistory.length === 0;
+
+        if (previousPositions && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          for (const item of list.children) {
+            const previous = previousPositions.get(item.dataset.exerciseId);
+            if (!previous) {
+              continue;
+            }
+
+            const current = item.getBoundingClientRect();
+            const offset = previous.top - current.top;
+            if (offset !== 0) {
+              const animation = item.animate(
+                [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
+                { duration: 850, easing: "cubic-bezier(0.65, 0, 0.35, 1)" },
+              );
+              activeAnimations.set(item, animation);
+            }
+          }
+        }
       }
 
       function moveToEnd(id) {
@@ -359,9 +401,10 @@
         if (undoHistory.length > 4) {
           undoHistory.shift();
         }
+        const previousPositions = capturePositions();
         order = [...order.slice(0, currentIndex), ...order.slice(currentIndex + 1), id];
         saveOrder();
-        render();
+        render(previousPositions);
       }
 
       undoButton.addEventListener("click", () => {
@@ -369,9 +412,10 @@
         if (!previousOrder) {
           return;
         }
+        const previousPositions = capturePositions();
         order = previousOrder;
         saveOrder();
-        render();
+        render(previousPositions);
       });
 
       render();
