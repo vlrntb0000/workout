@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f5f4f0">
-    <title>Move · Workout exercises</title>
+    <title>Workout</title>
     <style>
       :root {
         color-scheme: light;
@@ -181,6 +181,8 @@
         "Row Up",
       ];
       const storageKey = "workout-exercise-order";
+      const workoutsPerList = 4;
+      const workoutListCount = 4;
       const list = document.querySelector("#workout-lists");
       const status = document.querySelector("#status");
       const exerciseIds = new Set(exercises);
@@ -205,13 +207,18 @@
           return exercises;
         }
 
-        return savedOrder;
+        const savedPositions = new Map(savedOrder.map((id, index) => [id, index]));
+        return Array.from({ length: workoutListCount }, (_, index) =>
+          exercises
+            .slice(index * workoutsPerList, (index + 1) * workoutsPerList)
+            .sort((first, second) => savedPositions.get(first) - savedPositions.get(second)),
+        ).flat();
       }
 
       const savedOrder = readOrder();
-      let workoutLists = Array.from({ length: 4 }, (_, index) => ({
+      let workoutLists = Array.from({ length: workoutListCount }, (_, index) => ({
         id: `workout-list-${index}`,
-        workouts: savedOrder.slice(index * 4, index * 4 + 4),
+        workouts: savedOrder.slice(index * workoutsPerList, (index + 1) * workoutsPerList),
       }));
 
       function saveOrder() {
