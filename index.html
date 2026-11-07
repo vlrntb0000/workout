@@ -61,6 +61,7 @@
 
       .lists {
         display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
         padding: 0;
         margin: 0;
@@ -79,31 +80,8 @@
         border-radius: 12px;
         background: rgb(255 255 255 / 85%);
         box-shadow: 0 2px 6px rgb(35 40 29 / 3%);
-        transition: border-color 170ms ease, background 170ms ease, box-shadow 170ms ease;
       }
 
-      .workout-list:hover {
-        border-color: #cbd4bf;
-        background: #fff;
-        box-shadow: 0 8px 18px rgb(35 40 29 / 7%);
-      }
-
-      .list-move {
-        width: 100%;
-        padding: 0;
-        border: 0;
-        background: transparent;
-        color: #718067;
-        font: inherit;
-        font-size: 0.72rem;
-        font-weight: 750;
-        letter-spacing: 0.1em;
-        text-align: left;
-        text-transform: uppercase;
-        cursor: pointer;
-      }
-
-      .list-move:focus-visible,
       .workout-entry:focus-visible {
         outline: 3px solid #a6bb8d;
         outline-offset: 3px;
@@ -129,7 +107,7 @@
         font: inherit;
         text-align: left;
         cursor: pointer;
-        transition: background 160ms ease;
+        transition: background 480ms ease;
       }
 
       .workout-entry:hover {
@@ -157,11 +135,16 @@
         text-align: center;
       }
 
+      @media (max-width: 500px) {
+        .lists {
+          grid-template-columns: 1fr;
+        }
+      }
+
       @media (max-width: 420px) {
         body {
           padding: 34px 16px;
         }
-
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -184,22 +167,22 @@
 
     <script>
       const exercises = [
-        "Ring Pull-ups",
-        "Ring Dips",
-        "Ring Pike Push-ups",
-        "Ring Rows",
-        "Ring Face-pulls",
-        "Ring Lateral-raises",
-        "Ring Pelican-curls",
-        "Ring Tricep-extensions",
-        "Single-leg Squats",
-        "Single-leg Deadlifts",
-        "Push Kicks",
-        "Low Kicks",
-        "Calf Raises",
-        "Wrist Raises",
-        "Calf Pulls",
-        "Wrist Pulls",
+        "Pull Up",
+        "Dip Up",
+        "Push Up",
+        "Row Up",
+        "Face Pull",
+        "Side Pull",
+        "Arm Curl",
+        "Arm Extend",
+        "Leg Lunge",
+        "Hip Hinge",
+        "Push Kick",
+        "Low Kick",
+        "Calf Raise",
+        "Wrist Raise",
+        "Calf Stretch",
+        "Wrist Stretch",
       ];
       const storageKey = "workout-exercise-order";
       const list = document.querySelector("#workout-lists");
@@ -247,34 +230,39 @@
       function capturePositions() {
         const positions = new Map();
         for (const item of list.children) {
-          const listTop = item.getBoundingClientRect().top;
-          positions.set(`list:${item.dataset.listId}`, listTop);
-          activeAnimations.get(item)?.cancel();
+          const card = item.firstElementChild;
+          const cardRect = card.getBoundingClientRect();
           for (const workout of item.querySelectorAll(".workout-entry")) {
+            activeAnimations.get(workout)?.cancel();
+            const rect = workout.getBoundingClientRect();
             positions.set(
               `workout:${workout.dataset.exerciseId}`,
-              workout.getBoundingClientRect().top - listTop,
+              { left: rect.left - cardRect.left, top: rect.top - cardRect.top },
             );
-            activeAnimations.get(workout)?.cancel();
           }
         }
         return positions;
       }
 
-      function animateMovement(element, key, previousPositions, currentTop, prefersReducedMotion) {
-        const previousTop = previousPositions.get(key);
-        if (previousTop === undefined) {
+      function animateMovement(element, key, previousPositions, currentPosition, prefersReducedMotion) {
+        const previousPosition = previousPositions.get(key);
+        if (!previousPosition) {
           return;
         }
 
-        const offset = previousTop - currentTop;
-        if (offset !== 0) {
-          const keyframes = prefersReducedMotion
-            ? [{ opacity: 0.55 }, { opacity: 1 }]
-            : [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }];
+        const offsetX = previousPosition.left - currentPosition.left;
+        const offsetY = previousPosition.top - currentPosition.top;
+        if (offsetX !== 0 || offsetY !== 0) {
+          const keyframes = [
+            { transform: `translate(${offsetX}px, ${offsetY}px)` },
+            { transform: "translate(0, 0)" },
+          ];
           const animation = element.animate(
             keyframes,
-            { duration: prefersReducedMotion ? 180 : 700, easing: "cubic-bezier(0.65, 0, 0.35, 1)" },
+            {
+              duration: prefersReducedMotion ? 220 : 1860,
+              easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            },
           );
           activeAnimations.set(element, animation);
         }
@@ -291,32 +279,19 @@
           if (!item) {
             item = document.createElement("li");
             const card = document.createElement("section");
-            const heading = document.createElement("button");
             const names = document.createElement("ol");
 
             card.className = "workout-list";
-            heading.className = "list-move";
-            heading.type = "button";
+            card.setAttribute("role", "group");
             names.className = "workout-names";
-            heading.addEventListener("click", () => moveListToEnd(workoutList.id));
-            card.addEventListener("click", (event) => {
-              if (!event.target.closest("button")) {
-                moveListToEnd(workoutList.id);
-              }
-            });
-            card.append(heading, names);
+            card.append(names);
             item.append(card);
           }
 
           item.dataset.listId = workoutList.id;
           const card = item.firstElementChild;
-          const heading = card.firstElementChild;
-          const names = card.lastElementChild;
-          heading.textContent = `Workout list ${index + 1}`;
-          heading.setAttribute(
-            "aria-label",
-            `Move workout list ${index + 1} to the end: ${workoutList.workouts.join(", ")}`,
-          );
+          const names = card.firstElementChild;
+          card.setAttribute("aria-label", `Workout list ${index + 1}`);
           const existingWorkouts = new Map(
             [...names.children].map((workout) => [workout.dataset.exerciseId, workout]),
           );
@@ -338,7 +313,10 @@
             }
 
             const button = workoutItem.firstElementChild;
-            button.setAttribute("aria-label", `Move ${workout} to the bottom of this list`);
+            button.setAttribute(
+              "aria-label",
+              `Move ${workout} to the bottom of this list`,
+            );
             button.firstElementChild.textContent = workout;
             names.append(workoutItem);
           });
@@ -348,15 +326,14 @@
         if (previousPositions) {
           const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
           for (const item of list.children) {
-            const listTop = item.getBoundingClientRect().top;
-            animateMovement(item, `list:${item.dataset.listId}`, previousPositions, listTop, prefersReducedMotion);
+            const cardRect = item.firstElementChild.getBoundingClientRect();
             for (const workout of item.querySelectorAll(".workout-entry")) {
-              const relativeTop = workout.getBoundingClientRect().top - listTop;
+              const rect = workout.getBoundingClientRect();
               animateMovement(
                 workout,
                 `workout:${workout.dataset.exerciseId}`,
                 previousPositions,
-                relativeTop,
+                { left: rect.left - cardRect.left, top: rect.top - cardRect.top },
                 prefersReducedMotion,
               );
             }
@@ -364,38 +341,16 @@
         }
       }
 
-      function moveListToEnd(listId) {
-        const currentIndex = workoutLists.findIndex(({ id }) => id === listId);
-        if (currentIndex === workoutLists.length - 1) {
-          return;
-        }
-
-        const previousPositions = capturePositions();
-        const [movedList] = workoutLists.splice(currentIndex, 1);
-        workoutLists.push(movedList);
-        saveOrder();
-        render(previousPositions);
-      }
-
       function moveWorkoutToEnd(listId, workout) {
-        const listIndex = workoutLists.findIndex(({ id }) => id === listId);
         const workoutList = workoutLists.find(({ id }) => id === listId);
         const currentIndex = workoutList.workouts.indexOf(workout);
-        const workoutIsLast = currentIndex === workoutList.workouts.length - 1;
-        const listIsLast = listIndex === workoutLists.length - 1;
-        if (workoutIsLast && listIsLast) {
+        if (currentIndex === workoutList.workouts.length - 1) {
           return;
         }
 
         const previousPositions = capturePositions();
-        if (!workoutIsLast) {
-          const [movedWorkout] = workoutList.workouts.splice(currentIndex, 1);
-          workoutList.workouts.push(movedWorkout);
-        }
-        if (!listIsLast) {
-          const [movedList] = workoutLists.splice(listIndex, 1);
-          workoutLists.push(movedList);
-        }
+        const [movedWorkout] = workoutList.workouts.splice(currentIndex, 1);
+        workoutList.workouts.push(movedWorkout);
         saveOrder();
         render(previousPositions);
       }
