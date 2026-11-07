@@ -59,74 +59,87 @@
         font-size: 0.94rem;
       }
 
-      .undo {
-        display: block;
-        flex: 0 0 auto;
-        min-height: 42px;
-        margin: 28px auto 0;
-        padding: 0 15px;
-        border: 1px solid #dcded6;
-        border-radius: 999px;
-        background: rgb(255 255 255 / 68%);
-        color: #343831;
-        font: inherit;
-        font-size: 0.86rem;
-        font-weight: 650;
-        cursor: pointer;
-        transition: background 160ms ease, border-color 160ms ease, opacity 160ms ease;
-      }
-
-      .undo:hover:not(:disabled) {
-        border-color: #b7c2a8;
-        background: #fff;
-      }
-
-      .undo:disabled {
-        opacity: 0.42;
-        cursor: not-allowed;
-      }
-
-      .list {
+      .lists {
         display: grid;
-        justify-items: center;
-        gap: 10px;
+        gap: 12px;
         padding: 0;
         margin: 0;
         list-style: none;
       }
 
-      .exercise {
-        display: flex;
-        align-items: center;
-        width: fit-content;
+      .workout-list {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        width: 100%;
         max-width: 100%;
-        min-height: 76px;
-        padding: 12px 17px;
-        border: 1px solid #e8e8e1;
-        border-radius: 18px;
+        min-height: 112px;
+        padding: 16px 18px;
+        border: 1px solid #e2e4dc;
+        border-radius: 12px;
         background: rgb(255 255 255 / 85%);
-        text-align: center;
-        cursor: pointer;
         box-shadow: 0 2px 6px rgb(35 40 29 / 3%);
         transition: border-color 170ms ease, background 170ms ease, box-shadow 170ms ease;
       }
 
-      .exercise:hover {
+      .workout-list:hover {
         border-color: #cbd4bf;
         background: #fff;
         box-shadow: 0 8px 18px rgb(35 40 29 / 7%);
       }
 
-      .exercise:focus-visible,
-      .undo:focus-visible {
+      .list-move {
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #718067;
+        font: inherit;
+        font-size: 0.72rem;
+        font-weight: 750;
+        letter-spacing: 0.1em;
+        text-align: left;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+
+      .list-move:focus-visible,
+      .workout-entry:focus-visible {
         outline: 3px solid #a6bb8d;
         outline-offset: 3px;
       }
 
-      .name {
+      .workout-names {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px 16px;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+      }
+
+      .workout-entry {
+        width: 100%;
+        min-height: 32px;
+        padding: 4px;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: background 160ms ease;
+      }
+
+      .workout-entry:hover {
+        background: #f0f3eb;
+      }
+
+      .workout-name {
         font-size: 0.98rem;
         font-weight: 680;
-        letter-spacing: -0.025em;
+        overflow-wrap: anywhere;
       }
 
       .hint {
@@ -149,11 +162,6 @@
           padding: 34px 16px;
         }
 
-        .undo {
-          min-height: 38px;
-          padding: 0 12px;
-          font-size: 0.8rem;
-        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -170,8 +178,7 @@
   </head>
   <body>
     <main class="app">
-      <ol class="list" id="exercise-list" aria-label="Workout exercises"></ol>
-      <button class="undo" id="undo" type="button" disabled>↶</button>
+      <ol class="lists" id="workout-lists" aria-label="Workout lists"></ol>
       <p class="status" id="status" role="status" aria-live="polite"></p>
     </main>
 
@@ -195,11 +202,9 @@
         "Wrist Pulls",
       ];
       const storageKey = "workout-exercise-order";
-      const list = document.querySelector("#exercise-list");
-      const undoButton = document.querySelector("#undo");
+      const list = document.querySelector("#workout-lists");
       const status = document.querySelector("#status");
       const exerciseIds = new Set(exercises);
-      const undoHistory = [];
       const activeAnimations = new WeakMap();
 
       function readOrder() {
@@ -224,11 +229,15 @@
         return savedOrder;
       }
 
-      let order = readOrder();
+      const savedOrder = readOrder();
+      let workoutLists = Array.from({ length: 4 }, (_, index) => ({
+        id: `workout-list-${index}`,
+        workouts: savedOrder.slice(index * 4, index * 4 + 4),
+      }));
 
       function saveOrder() {
         try {
-          localStorage.setItem(storageKey, JSON.stringify(order));
+          localStorage.setItem(storageKey, JSON.stringify(workoutLists.flatMap(({ workouts }) => workouts)));
           status.textContent = "";
         } catch (error) {
           status.textContent = "Could not save your order. Check your browser's storage settings.";
@@ -238,90 +247,158 @@
       function capturePositions() {
         const positions = new Map();
         for (const item of list.children) {
-          positions.set(item.dataset.exerciseId, item.getBoundingClientRect());
+          const listTop = item.getBoundingClientRect().top;
+          positions.set(`list:${item.dataset.listId}`, listTop);
           activeAnimations.get(item)?.cancel();
+          for (const workout of item.querySelectorAll(".workout-entry")) {
+            positions.set(
+              `workout:${workout.dataset.exerciseId}`,
+              workout.getBoundingClientRect().top - listTop,
+            );
+            activeAnimations.get(workout)?.cancel();
+          }
         }
         return positions;
       }
 
+      function animateMovement(element, key, previousPositions, currentTop, prefersReducedMotion) {
+        const previousTop = previousPositions.get(key);
+        if (previousTop === undefined) {
+          return;
+        }
+
+        const offset = previousTop - currentTop;
+        if (offset !== 0) {
+          const keyframes = prefersReducedMotion
+            ? [{ opacity: 0.55 }, { opacity: 1 }]
+            : [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }];
+          const animation = element.animate(
+            keyframes,
+            { duration: prefersReducedMotion ? 180 : 700, easing: "cubic-bezier(0.65, 0, 0.35, 1)" },
+          );
+          activeAnimations.set(element, animation);
+        }
+      }
+
       function render(previousPositions = null) {
-        const existingItems = new Map(
-          [...list.children].map((item) => [item.dataset.exerciseId, item]),
+        const existingLists = new Map(
+          [...list.children].map((item) => [item.dataset.listId, item]),
         );
 
-        order.forEach((id) => {
-          let item = existingItems.get(id);
+        workoutLists.forEach((workoutList, index) => {
+          let item = existingLists.get(workoutList.id);
 
           if (!item) {
             item = document.createElement("li");
-            const button = document.createElement("button");
-            const name = document.createElement("span");
+            const card = document.createElement("section");
+            const heading = document.createElement("button");
+            const names = document.createElement("ol");
 
-            button.className = "exercise";
-            button.type = "button";
-            button.setAttribute("aria-label", `Move ${id} to the end of the list`);
-            name.className = "name";
-            name.textContent = id;
-            button.append(name);
-            button.addEventListener("click", () => moveToEnd(id));
-            item.append(button);
-            item.dataset.exerciseId = id;
-          } else {
-            const button = item.firstElementChild;
-            button.setAttribute("aria-label", `Move ${id} to the end of the list`);
+            card.className = "workout-list";
+            heading.className = "list-move";
+            heading.type = "button";
+            names.className = "workout-names";
+            heading.addEventListener("click", () => moveListToEnd(workoutList.id));
+            card.addEventListener("click", (event) => {
+              if (!event.target.closest("button")) {
+                moveListToEnd(workoutList.id);
+              }
+            });
+            card.append(heading, names);
+            item.append(card);
           }
 
+          item.dataset.listId = workoutList.id;
+          const card = item.firstElementChild;
+          const heading = card.firstElementChild;
+          const names = card.lastElementChild;
+          heading.textContent = `Workout list ${index + 1}`;
+          heading.setAttribute(
+            "aria-label",
+            `Move workout list ${index + 1} to the end: ${workoutList.workouts.join(", ")}`,
+          );
+          const existingWorkouts = new Map(
+            [...names.children].map((workout) => [workout.dataset.exerciseId, workout]),
+          );
+          workoutList.workouts.forEach((workout) => {
+            let workoutItem = existingWorkouts.get(workout);
+            if (!workoutItem) {
+              workoutItem = document.createElement("li");
+              const button = document.createElement("button");
+              const name = document.createElement("span");
+
+              button.className = "workout-entry";
+              button.type = "button";
+              button.dataset.exerciseId = workout;
+              button.addEventListener("click", () => moveWorkoutToEnd(workoutList.id, workout));
+              name.className = "workout-name";
+              button.append(name);
+              workoutItem.append(button);
+              workoutItem.dataset.exerciseId = workout;
+            }
+
+            const button = workoutItem.firstElementChild;
+            button.setAttribute("aria-label", `Move ${workout} to the bottom of this list`);
+            button.firstElementChild.textContent = workout;
+            names.append(workoutItem);
+          });
           list.append(item);
         });
 
-        undoButton.disabled = undoHistory.length === 0;
-
-        if (previousPositions && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        if (previousPositions) {
+          const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
           for (const item of list.children) {
-            const previous = previousPositions.get(item.dataset.exerciseId);
-            if (!previous) {
-              continue;
-            }
-
-            const current = item.getBoundingClientRect();
-            const offset = previous.top - current.top;
-            if (offset !== 0) {
-              const animation = item.animate(
-                [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
-                { duration: 850, easing: "cubic-bezier(0.65, 0, 0.35, 1)" },
+            const listTop = item.getBoundingClientRect().top;
+            animateMovement(item, `list:${item.dataset.listId}`, previousPositions, listTop, prefersReducedMotion);
+            for (const workout of item.querySelectorAll(".workout-entry")) {
+              const relativeTop = workout.getBoundingClientRect().top - listTop;
+              animateMovement(
+                workout,
+                `workout:${workout.dataset.exerciseId}`,
+                previousPositions,
+                relativeTop,
+                prefersReducedMotion,
               );
-              activeAnimations.set(item, animation);
             }
           }
         }
       }
 
-      function moveToEnd(id) {
-        const currentIndex = order.indexOf(id);
-        if (currentIndex === order.length - 1) {
+      function moveListToEnd(listId) {
+        const currentIndex = workoutLists.findIndex(({ id }) => id === listId);
+        if (currentIndex === workoutLists.length - 1) {
           return;
         }
 
-        undoHistory.push([...order]);
-        if (undoHistory.length > 4) {
-          undoHistory.shift();
-        }
         const previousPositions = capturePositions();
-        order = [...order.slice(0, currentIndex), ...order.slice(currentIndex + 1), id];
+        const [movedList] = workoutLists.splice(currentIndex, 1);
+        workoutLists.push(movedList);
         saveOrder();
         render(previousPositions);
       }
 
-      undoButton.addEventListener("click", () => {
-        const previousOrder = undoHistory.pop();
-        if (!previousOrder) {
+      function moveWorkoutToEnd(listId, workout) {
+        const listIndex = workoutLists.findIndex(({ id }) => id === listId);
+        const workoutList = workoutLists.find(({ id }) => id === listId);
+        const currentIndex = workoutList.workouts.indexOf(workout);
+        const workoutIsLast = currentIndex === workoutList.workouts.length - 1;
+        const listIsLast = listIndex === workoutLists.length - 1;
+        if (workoutIsLast && listIsLast) {
           return;
         }
+
         const previousPositions = capturePositions();
-        order = previousOrder;
+        if (!workoutIsLast) {
+          const [movedWorkout] = workoutList.workouts.splice(currentIndex, 1);
+          workoutList.workouts.push(movedWorkout);
+        }
+        if (!listIsLast) {
+          const [movedList] = workoutLists.splice(listIndex, 1);
+          workoutLists.push(movedList);
+        }
         saveOrder();
         render(previousPositions);
-      });
+      }
 
       render();
     </script>
